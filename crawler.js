@@ -7,6 +7,7 @@ import PlayerReports from "./models/playerReports.js";
 import dbConnect from "./dbConnect.js";
 import HanTools from "hangul-tools";
 import axios from "axios";
+import playerRestrictions from "./seed/playerRestrictions.json" assert { type: "json" };
 
 let browser;
 
@@ -82,48 +83,55 @@ async function playerPriceValue(data, Grade) {
     context = await browser.newContext();
     const results = [];
 
-    for (let grade of grades) {
-      for (const player of data) {
-        const { id } = player;
-        const url = `https://fconline.nexon.com/DataCenter/PlayerInfo?spid=${id}&n1Strong=${grade}`;
-        const page = await context.newPage();
-        await blockUnwantedResources(page);
+    for (const player of data) {
+      if (playerRestrictions.includes(Number(player.id))) {
+        continue;
+      } else {
+        for (let grade of grades) {
+          const { id } = player;
+          const url = `https://fconline.nexon.com/DataCenter/PlayerInfo?spid=${id}&n1Strong=${grade}`;
+          const page = await context.newPage();
+          await blockUnwantedResources(page);
 
-        try {
-          console.log(`🌍 Navigating to ${url}`);
-          await page.goto(url, { waitUntil: "domcontentloaded" });
+          try {
+            console.log(`🌍 Navigating to ${url}`);
+            await page.goto(url, { waitUntil: "domcontentloaded" });
 
-          await page.waitForFunction(
-            () => {
-              const element = document.querySelector(".txt strong");
-              return (
-                element &&
-                element.getAttribute("title") &&
-                element.getAttribute("title").trim() !== ""
-              );
-            },
-            { timeout: 80000 }
-          );
+            await page.waitForFunction(
+              () => {
+                const element = document.querySelector(".txt strong");
+                return (
+                  element &&
+                  element.getAttribute("title") &&
+                  element.getAttribute("title").trim() !== ""
+                );
+              },
+              { timeout: 80000 }
+            );
 
-          let datacenterTitle = await page.evaluate(() => {
-            const element = document.querySelector(".txt strong").textContent;
-            return element;
-          });
+            let datacenterTitle = await page.evaluate(() => {
+              const element = document.querySelector(".txt strong").textContent;
+              return element;
+            });
 
-          results.push({
-            id: id,
-            prices: { grade, price: datacenterTitle },
-          });
+            results.push({
+              id: id,
+              prices: { grade, price: datacenterTitle },
+            });
 
-          console.log(`✔ ID ${id} / Grade ${grade} → ${datacenterTitle}`);
-        } catch (err) {
-          console.error(`❌ Error for ID ${id}, Grade ${grade}:`, err.message);
-          results.push({
-            id: id,
-            prices: { grade, price: "Error" },
-          });
-        } finally {
-          await page.close();
+            console.log(`✔ ID ${id} / Grade ${grade} → ${datacenterTitle}`);
+          } catch (err) {
+            console.error(
+              `❌ Error for ID ${id}, Grade ${grade}:`,
+              err.message
+            );
+            results.push({
+              id: id,
+              prices: { grade, price: "Error" },
+            });
+          } finally {
+            await page.close();
+          }
         }
       }
     }
@@ -273,17 +281,13 @@ const playerSearch = async (selectedSeason = "", minOvr = 0) => {
 async function main() {
   try {
     const data = {
-      id: "챔피언스 저니 4000p",
+      id: "챔피언스 저니 2000p",
       updateTime: "",
       seasonPack: [],
     };
 
-    const JNM_TOP_300 = {
-      packName: "JNM 포함 Top Price 300 스페셜팩 (8강, 90+)",
-      playerPrice: [],
-    };
-    const NTG_UP_TOP_200 = {
-      packName: "NTG, UP 포함 Top Price 200 스페셜팩 (10강, 90+)",
+    const UT_TOP_600 = {
+      packName: "UT 포함 Top Price 800 스페셜팩 (5~8강, 103+)",
       playerPrice: [],
     };
 
@@ -307,162 +311,144 @@ async function main() {
     //   }
     // }
     // data.seasonPack.push({ ...ICON_TM_TOP_ALL });
-    // -------------------------------------- JNM, 24HEROES, DC, JVA, CC, FCA, 23HW, HG, RTN, 23HEROES, RMCF, LN, SPL, 23NG, LOL, FA, 23KFA, 22HEROES, BTB, CAP, CFA, EBS, BOE21, NTG, UP, 22KFA, 2012KH, 21KFA, MC, LA _TOP_300--------------------------------------
 
-    const JNM_LIST = await playerSearch(
+    // -------------------------------------- UT, 24KB, JNM, 24HEROES, DC, JVA, CC, FCA, 23HW, HG, RTN, 23HEROES, RMCF, LN, SPL, 23NG, LOL, FA_TOP_600--------------------------------------
+
+    const UT_LIST = await playerSearch(
       [
-        813, 811, 802, 801, 289, 290, 291, 283, 284, 281, 274, 268, 270, 804,
-        265, 264, 806, 261, 256, 252, 254, 251, 253, 249, 246, 293, 247, 294,
-        237, 236,
+        814, 830, 813, 811, 802, 801, 289, 290, 291, 283, 284, 281, 274, 268,
+        270, 804, 265, 264,
       ],
-      90
+      104
     ); // playerSearch(시즌넘버, 최소오버롤)
-    let JNM_RESULTS = await playerPriceValue(JNM_LIST, 8); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(JNM_RESULTS);
-    const JNM_FINAL = SortAndSlice(JNM_RESULTS, 300); // SortAndSlice(데이터 , 자르기숫자)
+    let UT_RESULTS = await playerPriceValue(UT_LIST, [5, 6, 7, 8]); // playerPriceValue(데이터 , 강화등급)
+    await saveToDB(UT_RESULTS);
+    const UT_FINAL = SortAndSlice(UT_RESULTS, 600); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of JNM_FINAL) {
+    for (let item of UT_FINAL) {
       const playerDocs = await Price.find({ id: item.id });
       if (playerDocs.length > 0 && playerDocs[0]._id) {
         const playerData = {
           grade: item.prices.grade,
           playerPrice: playerDocs[0]?._id || null,
         };
-        JNM_TOP_300.playerPrice.push(playerData);
+        UT_TOP_600.playerPrice.push(playerData);
       }
     }
-    data.seasonPack.push({ ...JNM_TOP_300 });
-    // -------------------------------------- NTG, UP, VTR, MOG, LH, TKL_TOP_200--------------------------------------
-
-    const NTG_UP_LIST = await playerSearch([249, 246, 231, 233, 234, 225], 90); // playerSearch(시즌넘버, 최소오버롤)
-    let NTG_UP_RESULTS = await playerPriceValue(NTG_UP_LIST, 10); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(NTG_UP_RESULTS);
-    const NTG_UP_FINAL = SortAndSlice(NTG_UP_RESULTS, 200); // SortAndSlice(데이터 , 자르기숫자)
-
-    for (let item of NTG_UP_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        NTG_UP_TOP_200.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...NTG_UP_TOP_200 });
+    data.seasonPack.push({ ...UT_TOP_600 });
     // -------------------------------------- LN_TOP_85--------------------------------------
 
-    const LN_LIST = await playerSearch([268], 103); // playerSearch(시즌넘버, 최소오버롤)
-    let LN_RESULTS = await playerPriceValue(LN_LIST, 9); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(LN_RESULTS);
-    const LN_FINAL = SortAndSlice(LN_RESULTS, 85); // SortAndSlice(데이터 , 자르기숫자)
+    // const LN_LIST = await playerSearch([268], 103); // playerSearch(시즌넘버, 최소오버롤)
+    // let LN_RESULTS = await playerPriceValue(LN_LIST, 9); // playerPriceValue(데이터 , 강화등급)
+    // await saveToDB(LN_RESULTS);
+    // const LN_FINAL = SortAndSlice(LN_RESULTS, 85); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of LN_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        LN_TOP_85.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...LN_TOP_85 });
-    // -------------------------------------- HG_TOP_90--------------------------------------
+    // for (let item of LN_FINAL) {
+    //   const playerDocs = await Price.find({ id: item.id });
+    //   if (playerDocs.length > 0 && playerDocs[0]._id) {
+    //     const playerData = {
+    //       grade: item.prices.grade,
+    //       playerPrice: playerDocs[0]?._id || null,
+    //     };
+    //     LN_TOP_85.playerPrice.push(playerData);
+    //   }
+    // }
+    // data.seasonPack.push({ ...LN_TOP_85 });
+    // // -------------------------------------- HG_TOP_90--------------------------------------
 
-    const HG_LIST = await playerSearch([283], 103); // playerSearch(시즌넘버, 최소오버롤)
-    let HG_RESULTS = await playerPriceValue(HG_LIST, 9); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(HG_RESULTS);
-    const HG_FINAL = SortAndSlice(HG_RESULTS, 90); // SortAndSlice(데이터 , 자르기숫자)
+    // const HG_LIST = await playerSearch([283], 103); // playerSearch(시즌넘버, 최소오버롤)
+    // let HG_RESULTS = await playerPriceValue(HG_LIST, 9); // playerPriceValue(데이터 , 강화등급)
+    // await saveToDB(HG_RESULTS);
+    // const HG_FINAL = SortAndSlice(HG_RESULTS, 90); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of HG_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        HG_TOP_90.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...HG_TOP_90 });
-    // -------------------------------------- RTN_TOP_65--------------------------------------
+    // for (let item of HG_FINAL) {
+    //   const playerDocs = await Price.find({ id: item.id });
+    //   if (playerDocs.length > 0 && playerDocs[0]._id) {
+    //     const playerData = {
+    //       grade: item.prices.grade,
+    //       playerPrice: playerDocs[0]?._id || null,
+    //     };
+    //     HG_TOP_90.playerPrice.push(playerData);
+    //   }
+    // }
+    // data.seasonPack.push({ ...HG_TOP_90 });
+    // // -------------------------------------- RTN_TOP_65--------------------------------------
 
-    const RTN_LIST = await playerSearch([284], 99); // playerSearch(시즌넘버, 최소오버롤)
-    let RTN_RESULTS = await playerPriceValue(RTN_LIST, 9); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(RTN_RESULTS);
-    const RTN_FINAL = SortAndSlice(RTN_RESULTS, 65); // SortAndSlice(데이터 , 자르기숫자)
+    // const RTN_LIST = await playerSearch([284], 99); // playerSearch(시즌넘버, 최소오버롤)
+    // let RTN_RESULTS = await playerPriceValue(RTN_LIST, 9); // playerPriceValue(데이터 , 강화등급)
+    // await saveToDB(RTN_RESULTS);
+    // const RTN_FINAL = SortAndSlice(RTN_RESULTS, 65); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of RTN_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        RTN_TOP_65.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...RTN_TOP_65 });
-    // -------------------------------------- LOL_FA_TOP_50--------------------------------------
+    // for (let item of RTN_FINAL) {
+    //   const playerDocs = await Price.find({ id: item.id });
+    //   if (playerDocs.length > 0 && playerDocs[0]._id) {
+    //     const playerData = {
+    //       grade: item.prices.grade,
+    //       playerPrice: playerDocs[0]?._id || null,
+    //     };
+    //     RTN_TOP_65.playerPrice.push(playerData);
+    //   }
+    // }
+    // data.seasonPack.push({ ...RTN_TOP_65 });
+    // // -------------------------------------- LOL_FA_TOP_50--------------------------------------
 
-    const LOL_FA_LIST = await playerSearch([265, 264], 103); // playerSearch(시즌넘버, 최소오버롤)
-    let LOL_FA_RESULTS = await playerPriceValue(LOL_FA_LIST, 9); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(LOL_FA_RESULTS);
-    const LOL_FA_FINAL = SortAndSlice(LOL_FA_RESULTS, 50); // SortAndSlice(데이터 , 자르기숫자)
+    // const LOL_FA_LIST = await playerSearch([265, 264], 103); // playerSearch(시즌넘버, 최소오버롤)
+    // let LOL_FA_RESULTS = await playerPriceValue(LOL_FA_LIST, 9); // playerPriceValue(데이터 , 강화등급)
+    // await saveToDB(LOL_FA_RESULTS);
+    // const LOL_FA_FINAL = SortAndSlice(LOL_FA_RESULTS, 50); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of LOL_FA_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        LOL_FA_TOP_50.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...LOL_FA_TOP_50 });
-    // -------------------------------------- HR22_TOP_110--------------------------------------
+    // for (let item of LOL_FA_FINAL) {
+    //   const playerDocs = await Price.find({ id: item.id });
+    //   if (playerDocs.length > 0 && playerDocs[0]._id) {
+    //     const playerData = {
+    //       grade: item.prices.grade,
+    //       playerPrice: playerDocs[0]?._id || null,
+    //     };
+    //     LOL_FA_TOP_50.playerPrice.push(playerData);
+    //   }
+    // }
+    // data.seasonPack.push({ ...LOL_FA_TOP_50 });
+    // // -------------------------------------- HR22_TOP_110--------------------------------------
 
-    const HR22_LIST = await playerSearch([261, 256, 254, 251, 247, 294], 103); // playerSearch(시즌넘버, 최소오버롤)
-    let HR22_RESULTS = await playerPriceValue(HR22_LIST, 9); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(HR22_RESULTS);
-    const HR22_FINAL = SortAndSlice(HR22_RESULTS, 110); // SortAndSlice(데이터 , 자르기숫자)
+    // const HR22_LIST = await playerSearch([261, 256, 254, 251, 247, 294], 103); // playerSearch(시즌넘버, 최소오버롤)
+    // let HR22_RESULTS = await playerPriceValue(HR22_LIST, 9); // playerPriceValue(데이터 , 강화등급)
+    // await saveToDB(HR22_RESULTS);
+    // const HR22_FINAL = SortAndSlice(HR22_RESULTS, 110); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of HR22_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        HR22_TOP_110.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...HR22_TOP_110 });
-    // -------------------------------------- COC_OTW_TOP_50--------------------------------------
+    // for (let item of HR22_FINAL) {
+    //   const playerDocs = await Price.find({ id: item.id });
+    //   if (playerDocs.length > 0 && playerDocs[0]._id) {
+    //     const playerData = {
+    //       grade: item.prices.grade,
+    //       playerPrice: playerDocs[0]?._id || null,
+    //     };
+    //     HR22_TOP_110.playerPrice.push(playerData);
+    //   }
+    // }
+    // data.seasonPack.push({ ...HR22_TOP_110 });
+    // // -------------------------------------- COC_OTW_TOP_50--------------------------------------
 
-    const COC_OTW_LIST = await playerSearch([217, 218, 210, 207, 206, 201], 75); // playerSearch(시즌넘버, 최소오버롤)
-    let COC_OTW_RESULTS = await playerPriceValue(COC_OTW_LIST, 10); // playerPriceValue(데이터 , 강화등급)
-    await saveToDB(COC_OTW_RESULTS);
-    const COC_OTW_FINAL = SortAndSlice(COC_OTW_RESULTS, 50); // SortAndSlice(데이터 , 자르기숫자)
+    // const COC_OTW_LIST = await playerSearch([217, 218, 210, 207, 206, 201], 75); // playerSearch(시즌넘버, 최소오버롤)
+    // let COC_OTW_RESULTS = await playerPriceValue(COC_OTW_LIST, 10); // playerPriceValue(데이터 , 강화등급)
+    // await saveToDB(COC_OTW_RESULTS);
+    // const COC_OTW_FINAL = SortAndSlice(COC_OTW_RESULTS, 50); // SortAndSlice(데이터 , 자르기숫자)
 
-    for (let item of COC_OTW_FINAL) {
-      const playerDocs = await Price.find({ id: item.id });
-      if (playerDocs.length > 0 && playerDocs[0]._id) {
-        const playerData = {
-          grade: item.prices.grade,
-          playerPrice: playerDocs[0]?._id || null,
-        };
-        COC_OTW_TOP_50.playerPrice.push(playerData);
-      }
-    }
-    data.seasonPack.push({ ...COC_OTW_TOP_50 });
+    // for (let item of COC_OTW_FINAL) {
+    //   const playerDocs = await Price.find({ id: item.id });
+    //   if (playerDocs.length > 0 && playerDocs[0]._id) {
+    //     const playerData = {
+    //       grade: item.prices.grade,
+    //       playerPrice: playerDocs[0]?._id || null,
+    //     };
+    //     COC_OTW_TOP_50.playerPrice.push(playerData);
+    //   }
+    // }
+    // data.seasonPack.push({ ...COC_OTW_TOP_50 });
 
     // -------------------------------------------------------------------------------------------------------------------------------
 
     const doc = await EventValueChart.findOne({
-      id: "챔피언스 저니 4000p",
+      id: "챔피언스 저니 2000p",
     }).lean();
 
     let mergedSeasonPacks = [];
@@ -500,7 +486,7 @@ async function main() {
     console.log("finalSeasonPack:", finalSeasonPack);
 
     await EventValueChart.updateOne(
-      { id: "챔피언스 저니 4000p" },
+      { id: "챔피언스 저니 2000p" },
       {
         $set: {
           updateTime: koreaTime,
