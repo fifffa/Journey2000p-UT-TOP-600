@@ -287,7 +287,7 @@ async function main() {
     };
 
     const UT_TOP_600 = {
-      packName: "UT 포함 Top Price 800 스페셜팩 (5~8강, 103+)",
+      packName: "UT 포함 Top Price 600 스페셜팩 (5~8강, 104+)",
       playerPrice: [],
     };
 
